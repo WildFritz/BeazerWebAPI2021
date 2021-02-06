@@ -20,6 +20,21 @@ mongoose.connect('mongodb://localhost:27017/scoreEntries', {
     console.log(err)
 })
 
+app.post('/saveGame', function(req, res){
+    console.log("Request Made")
+    console.log(req.body)
+
+    new Game(req.body).save().then(function(){
+        res.redirect('gamelist.html')
+    })
+})
+
+app.get('/getData', function(req, res){
+    Game.find({}).then(function(game){
+        res.json({game})
+    })
+})
+
 //Load in database templates
 require('./models/Game')
 var Game = mongoose.model('game')
