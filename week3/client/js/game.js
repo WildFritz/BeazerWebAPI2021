@@ -1,10 +1,59 @@
 var socket = io()
+
+//Sign in code
+var signDiv = document.getElementById('signInDiv')
+var signDivUsername = document.getElementById('signInDiv-username')
+var signDivSignIn = document.getElementById('signInDiv-signIn')
+var signDivSignUp = document.getElementById('signInDiv-signUp')
+var signDivPassword = document.getElementById('signInDiv-password')
+var gameDiv = document.getElementById('gameDiv')
+var error = document.getElementById('err')
+
+
+//add event listener
+signDivSignIn.onclick = function(){
+    socket.emit('signIn', {username:signDivUsername.value, password:signDivPassword.value})
+}
+signDivSignUp.onclick = function(){
+    socket.emit('signUp', {username:signDivUsername.value, password:signDivPassword.value})
+}
+
+socket.on('signInResponse',function(data){
+    if(data.success){
+        signDiv.style.display = "none"
+    gameDiv.style.display = "inline-block"
+    }else{
+        //alert("Sign in Unsuccessful")
+        error.innerHTML = "Sign in Unsuccessful"
+    }
+    
+})
+
+socket.on('signUpResponse',function(data){
+    if(data.success){
+        error.innerHTML = "Sign Up successful please log in"
+    }else{
+        //alert("Sign in Unsuccessful")
+        error.innerHTML = "Sign Up Unsuccessful"
+    }
+    
+})
+
+
 var canvas = document.getElementById('canvas')
 var ctx = canvas.getContext('2d')
 var chatText = document.getElementById('chat-text')
 var chatInput = document.getElementById('chat-input')
 var chatForm = document.getElementById('chat-form')
 ctx.font = "30px Arial"
+px = 0
+py = 0
+var clientId
+
+
+socket.on('connected',function(data){
+    clientId = data
+})
 
 //Event listeners for keypresses and mouseclicks and mouse position
 document.addEventListener('keydown', keyPressDown)
@@ -46,8 +95,8 @@ document.addEventListener('mousemove', mouseMove)
     }
 
     function mouseMove(e){
-        var x = -400 + e.clientX - 8
-        var y = -300 + e.clientY - 8
+        var x = -px + e.clientX - 8
+        var y = -py + e.clientY - 96
         var angle = Math.atan2(y,x)/Math.PI*180
         socket.emit('keypress', { inputId: "mouseAngle", state: angle })
     }
@@ -56,10 +105,14 @@ document.addEventListener('mousemove', mouseMove)
 socket.on('newPositions', function(data){
     ctx.clearRect(0,0,canvas.width,canvas.height)
     for(var i =0; i<data.player.length; i++){
+        if(clientId == data.player[i].id){
+            px = data.player[i].x
+            py = data.player[i].y
+        }
         ctx.fillText(data.player[i].number, data.player[i].x, data.player[i].y)
     }
     for(var i =0; i<data.bullet.length; i++){
-        ctx.fillRect( data.bullet[i].x, data.bullet[i].y, 10, 10)
+        ctx.fillRect( data.bullet[i].x + 5, data.bullet[i].y - 10, 10, 10)
     }
 })
 
