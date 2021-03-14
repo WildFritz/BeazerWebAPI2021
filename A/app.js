@@ -2,10 +2,13 @@ var express = require('express')
 var app = express()
 var mongoose = require('mongoose')
 const { createBrotliCompress } = require('zlib')
+const { setFlagsFromString } = require('v8')
+const { RSA_NO_PADDING } = require('constants')
 var serv = require('http').Server(app)
 var io = require('socket.io')(serv, {})
 var debug = true
-
+var numAsteroids = 10
+var gameRunning = false
 
 require('./db')
 require('./models/Player')
@@ -30,6 +33,9 @@ serv.listen(5000, function(){
 var socketList = {}
 //var playerList = {}
 
+var randomRange = function(high, low){
+    return Math.random() * ( high - low) + low;
+} 
 
 var GameObject = function(){
     var self = {
@@ -46,26 +52,7 @@ var GameObject = function(){
         self.x += self.spX
         self.y += self.spY
 
-        if(self.y > 600 - 10){
-            self.y = 600 - 10;
-            self.vy = 0;
-        }
-        //right boundary of screen
-        if(self.x > 800 - 10 ){
-            self.x = 800 - 10;
-            self.vx = 0;
-        }
-        //left boundary of screen
-        if(self.x < 0 + 10 ){
-            self.x = 0 + 10;
-            self.vx = 0;
-        }
-
-        //top boundary of screen
-        if(self.y < 0 + 10){
-            self.y = 0 + 10;
-            self.vy = 0;
-        }
+       
     }
     self.getDist = function(point){
         return Math.sqrt(Math.pow(self.x - point.x,2)+Math.pow(self.y-point.y,2))
@@ -88,6 +75,26 @@ var Player = function(id){
         self.updateSpeed()
         playerUpdate()
         
+         if(self.y > 600 - 10){
+            self.y = 600 - 10;
+            self.vy = 0;
+        }
+        //right boundary of screen
+        if(self.x > 800 - 10 ){
+            self.x = 800 - 10;
+            self.vx = 0;
+        }
+        //left boundary of screen
+        if(self.x < 0 + 10 ){
+            self.x = 0 + 10;
+            self.vx = 0;
+        }
+
+        //top boundary of screen
+        if(self.y < 0 + 10){
+            self.y = 0 + 10;
+            self.vy = 0;
+        }
     }
 
    
@@ -97,21 +104,39 @@ var Player = function(id){
             self.spY = -10;
         }
         else{
-            self.spY = 3;
+            self.spY = 5;
         }
     
         if(self.left == true){
-            self.spX = -3;
+            self.spX = -5;
         }
         else if(self.right == true){
-            self.spX = 3;
+            self.spX = 5;
         }
         else{
             self.spX = 0;
         }
     }
-    Player.list[id] = self
 
+
+    self.getInitPack = function(){
+        return {
+            id:self.id,
+            x:self.x,
+            y:self.y,
+        }
+    }
+
+    self.getUpdatePack = function(){
+        return {
+            id:self.id,
+            x:self.x,
+            y:self.y,
+        }
+    }
+
+    Player.list[id] = self
+    initPack.player.push(self.getInitPack())
 
     return self
 }
@@ -138,10 +163,25 @@ Player.onConnect = function(socket){
         // if (data.inputId === 'mouseAngle')
         //     player.mouseAngle = data.state
     })
+
+    socket.emit('init', {
+        player:Player.getAllInitPack(),
+        asteroid:Asteroid.getAllInitPack(),
+    })
 }
+
+Player.getAllInitPack = function(){
+    var players = []
+    for(var i in Player.list){
+        players.push(Player.list[i].getInitPack())
+    }
+    return players
+}
+
 
 Player.onDisconnect = function(socket){
     delete Player.list[socket.id]
+    removePack.player.push(socket.id)
 }
 
 Player.update = function(){
@@ -151,36 +191,126 @@ Player.update = function(){
         var player = Player.list[i]
         player.update()
        // console.log(player)
-        pack.push({
-            x: player.x,
-            y: player.y,
-            number:player.number,
-            id:player.id
-        })
+        pack.push(player.getUpdatePack())
     }
 
     return pack
 }
 
 var Asteroid = function(){
+    var self = GameObject()
+    self.id = Math.random()
+    self.x = randomRange(800,0)
+    self.y = randomRange(0,-600)
+    //self.spY = randomRange(10,5)
+   // self.spX = 0
+
+
+    self.timer = 0
+    self.toRemove = false
+
+    var asteroidUpdate = self.update
+
+    self.update = function(){
+        if(self.y > 600){
+            self.x = randomRange(800,0)
+            self.y = randomRange(0,-600)
+        }
+        self.updateSpeed()
+        asteroidUpdate()
+        for(var i in Player.list){
+            var p = Player.list[i]
+            if(self.getDist(p)<15){
+                
+
+                //delete the player
+                delete Player.list[i]
+                
+                
+                console.log("dead")
+                
+                //self.toRemove = true
+                
+            }
+        }
+    }
+    self.updateSpeed = function(){
+        self.spY = randomRange(20,5)
+    }
+
+    self.getInitPack = function(){
+        return {
+            id:self.id,
+            x:self.x,
+            y:self.y,
+            spY:self.spY
+        }
+    }
+
+    self.getUpdatePack = function(){
+        return {
+            id:self.id,
+            x:self.x,
+            y:self.y,
+            spY:self.spY
+        }
+    }
+    Asteroid.list[self.id] = self
+
+    initPack.asteroid.push(self.getInitPack())
+    return self
+}
+Asteroid.list = {}
+
+Asteroid.update = function(){
+
+    var pack = []
     
+    for (var i in Asteroid.list) {
+        var asteroid = Asteroid.list[i]
+        asteroid.update()
+        // if(asteroid.toRemove){
+        //     delete Asteroid.list[i]
+        //     removePack.asteroid.push(asteroid.id)
+        // }
+        // else{
+        //     pack.push(asteroid.getUpdatePack())
+            
+        // }
+        pack.push(asteroid.getUpdatePack())
+        
+    }
+
+    return pack
+}
+
+Asteroid.getAllInitPack = function(){
+    var asteroids = []
+    for(var i in Asteroid.list){
+        asteroids.push(Asteroid.list[i].getInitPack())
+    }
+    return asteroids
 }
 
 
-
-//======== User Collection setup
-// var Players = {
-//     "Matt": "123",
-//     "Dylan": "111",
-//     "Ronny": "222",
-//     "Maleek": "777",
-// }
-
+var gameStart= function() {
+    //for loop to create all instances of asteroids
+    for (var i = 0; i < numAsteroids; i++) {
+        
+        var asteroid = new Asteroid();
+        //console.log(asteroid)
+    }
+    
+}
 
 //Connection to the game
 io.sockets.on('connection', function(socket){
     console.log("Socket Connected")
-
+    if(!gameRunning){
+        gameRunning = true
+        gameStart()
+       // console.log('The game has started')
+    }
     socket.id = Math.random()
 
     //add something to socketList
@@ -188,7 +318,7 @@ io.sockets.on('connection', function(socket){
     
     Player.onConnect(socket)
     
- 
+    socket.emit('connected', socket.id)
 
 
     //disconnection event
@@ -215,14 +345,37 @@ io.sockets.on('connection', function(socket){
     
 })
 
+var initPack = {
+    player:[], 
+    asteroid:[]
+}
+
+var removePack = {
+    player:[], 
+    asteroid:[]
+}
+
 //setup update loop
 setInterval(function () {
     var pack = {
-        player:Player.update()
+        player:Player.update(),
+        asteroid:Asteroid.update()
     }
     //var pack = Player.update()
     for (var i in socketList) {
         var socket = socketList[i]
-        socket.emit('newPositions', pack)
+        socket.emit('init', initPack)
+        socket.emit('update', pack)
+        socket.emit('remove', removePack)
     }
+
+    // if(Asteroid.list < numAsteroids){
+    //     var asteroid = new Asteroid();
+    // }
+    initPack.player = []
+    removePack.player = []
+    // initPack.asteroid = []
+    // removePack.asteroid = []
+    
+
 }, 1000 / 30)
